@@ -109,7 +109,10 @@ app.get('/api/insights/daily', async (req, res) => {
     logsToday.forEach(log => uniqueDeviceIds.add(log.deviceId));
     activeNow.forEach(dev => uniqueDeviceIds.add(dev.deviceId));
 
-    res.json({ totalActiveToday: uniqueDeviceIds.size });
+    res.json({ 
+      totalActiveToday: uniqueDeviceIds.size,
+      activeDevices: Array.from(uniqueDeviceIds)
+    });
   } catch (err) {
     res.status(500).json({ error: 'Failed' });
   }
