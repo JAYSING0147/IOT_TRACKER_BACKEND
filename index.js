@@ -89,14 +89,20 @@ app.get('/api/devices', async (req, res) => {
   }
 });
 
-// -- INSIGHTS APIs --
+// -- INSIGHTS APIs (Indian Standard Time: UTC+5:30) --
+
+function getStartOfISTDay() {
+  const now = new Date();
+  const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  istNow.setUTCHours(0, 0, 0, 0);
+  return new Date(istNow.getTime() - (5.5 * 60 * 60 * 1000));
+}
 
 app.get('/api/insights/daily', async (req, res) => {
   try {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    const startOfISTDay = getStartOfISTDay();
 
-    const logsToday = await DeviceLog.find({ event: 'ONLINE', timestamp: { $gte: startOfDay } });
+    const logsToday = await DeviceLog.find({ event: 'ONLINE', timestamp: { $gte: startOfISTDay } });
     const activeNow = await Device.find({ status: 'ACTIVE' });
     
     const uniqueDeviceIds = new Set();
@@ -111,15 +117,15 @@ app.get('/api/insights/daily', async (req, res) => {
 
 app.get('/api/insights/hourly', async (req, res) => {
   try {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    
-    const logs = await DeviceLog.find({ timestamp: { $gte: startOfDay }, event: 'ONLINE' });
+    const startOfISTDay = getStartOfISTDay();
+    const logs = await DeviceLog.find({ timestamp: { $gte: startOfISTDay }, event: 'ONLINE' });
     
     const devicesPerHour = Array(24).fill(null).map(() => new Set());
     
     logs.forEach(log => {
-      const hour = new Date(log.timestamp).getHours();
+      // Shift log timestamp to IST
+      const istTime = new Date(log.timestamp.getTime() + (5.5 * 60 * 60 * 1000));
+      const hour = istTime.getUTCHours();
       devicesPerHour[hour].add(log.deviceId);
     });
     
@@ -137,17 +143,21 @@ app.get('/api/insights/hourly', async (req, res) => {
 app.get('/api/insights/weekly', async (req, res) => {
   try {
     const data = [];
+    const now = new Date();
+    const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+    istNow.setUTCHours(0, 0, 0, 0);
+    
     for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      d.setHours(0,0,0,0);
-      const nextDay = new Date(d);
-      nextDay.setDate(nextDay.getDate() + 1);
+      const d = new Date(istNow.getTime() - (i * 24 * 60 * 60 * 1000)); 
+      const nextDay = new Date(d.getTime() + (24 * 60 * 60 * 1000));
+      
+      const dUTC = new Date(d.getTime() - (5.5 * 60 * 60 * 1000));
+      const nextDayUTC = new Date(nextDay.getTime() - (5.5 * 60 * 60 * 1000));
 
-      const logs = await DeviceLog.find({ event: 'ONLINE', timestamp: { $gte: d, $lt: nextDay }});
+      const logs = await DeviceLog.find({ event: 'ONLINE', timestamp: { $gte: dUTC, $lt: nextDayUTC }});
       const unique = new Set(logs.map(l => l.deviceId));
       
-      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
       data.push({ name: dayName, active: unique.size });
     }
     res.json(data);
