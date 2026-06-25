@@ -5,6 +5,7 @@ const mqtt = require('mqtt');
 const cors = require('cors');
 
 const Device = require('./models/Device');
+const DeviceLog = require('./models/DeviceLog');
 
 const app = express();
 app.use(cors());
@@ -35,10 +36,16 @@ client.on('message', async (topic, message) => {
 
   if (payload === 'alive') {
     try {
+      const existing = await Device.findOne({ deviceId });
+      if (!existing || existing.status === 'OFFLINE') {
+        // Device just came online, log it
+        await DeviceLog.create({ deviceId, event: 'ONLINE' });
+      }
+
       await Device.findOneAndUpdate(
         { deviceId },
         { status: 'ACTIVE', lastSeen: new Date() },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
     } catch (err) {
       console.error('Error updating device:', err);
@@ -51,11 +58,20 @@ const TIMEOUT_MS = 75000;
 setInterval(async () => {
   try {
     const cutoffTime = new Date(Date.now() - TIMEOUT_MS);
-    const result = await Device.updateMany(
-      { status: 'ACTIVE', lastSeen: { $lt: cutoffTime } },
-      { $set: { status: 'OFFLINE' } }
-    );
-    if (result.modifiedCount > 0) {
+    
+    const devicesToOffline = await Device.find({ 
+      status: 'ACTIVE', 
+      lastSeen: { $lt: cutoffTime } 
+    });
+
+    if (devicesToOffline.length > 0) {
+      const logs = devicesToOffline.map(d => ({ deviceId: d.deviceId, event: 'OFFLINE' }));
+      await DeviceLog.insertMany(logs);
+      
+      const result = await Device.updateMany(
+        { _id: { $in: devicesToOffline.map(d => d._id) } },
+        { $set: { status: 'OFFLINE' } }
+      );
       console.log(`Marked ${result.modifiedCount} devices as OFFLINE`);
     }
   } catch (err) {
@@ -63,13 +79,80 @@ setInterval(async () => {
   }
 }, 10000);
 
-// 4. API Endpoint for Frontend
+// 4. API Endpoints
 app.get('/api/devices', async (req, res) => {
   try {
     const devices = await Device.find();
     res.json(devices);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch devices' });
+  }
+});
+
+// -- INSIGHTS APIs --
+
+app.get('/api/insights/daily', async (req, res) => {
+  try {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const logsToday = await DeviceLog.find({ event: 'ONLINE', timestamp: { $gte: startOfDay } });
+    const activeNow = await Device.find({ status: 'ACTIVE' });
+    
+    const uniqueDeviceIds = new Set();
+    logsToday.forEach(log => uniqueDeviceIds.add(log.deviceId));
+    activeNow.forEach(dev => uniqueDeviceIds.add(dev.deviceId));
+
+    res.json({ totalActiveToday: uniqueDeviceIds.size });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+app.get('/api/insights/hourly', async (req, res) => {
+  try {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const logs = await DeviceLog.find({ timestamp: { $gte: startOfDay }, event: 'ONLINE' });
+    
+    const devicesPerHour = Array(24).fill(null).map(() => new Set());
+    
+    logs.forEach(log => {
+      const hour = new Date(log.timestamp).getHours();
+      devicesPerHour[hour].add(log.deviceId);
+    });
+    
+    const chartData = devicesPerHour.map((set, i) => ({
+      hour: `${i}:00`,
+      active: set.size
+    }));
+    
+    res.json(chartData);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+app.get('/api/insights/weekly', async (req, res) => {
+  try {
+    const data = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      d.setHours(0,0,0,0);
+      const nextDay = new Date(d);
+      nextDay.setDate(nextDay.getDate() + 1);
+
+      const logs = await DeviceLog.find({ event: 'ONLINE', timestamp: { $gte: d, $lt: nextDay }});
+      const unique = new Set(logs.map(l => l.deviceId));
+      
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+      data.push({ name: dayName, active: unique.size });
+    }
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed' });
   }
 });
 
