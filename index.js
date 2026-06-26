@@ -89,6 +89,20 @@ app.get('/api/devices', async (req, res) => {
   }
 });
 
+app.get('/api/devices/:deviceId/logs', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const startOfISTDay = getStartOfISTDay();
+    const logs = await DeviceLog.find({ 
+      deviceId, 
+      timestamp: { $gte: startOfISTDay } 
+    }).sort({ timestamp: 1 });
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch logs' });
+  }
+});
+
 // -- INSIGHTS APIs (Indian Standard Time: UTC+5:30) --
 
 function getStartOfISTDay() {
