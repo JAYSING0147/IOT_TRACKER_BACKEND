@@ -299,6 +299,76 @@ app.get('/api/insights/weekly', async (req, res) => {
   }
 });
 
+app.get('/api/insights/rankings', async (req, res) => {
+  try {
+    const devices = await Device.find();
+    const logs = await DeviceLog.find().sort({ timestamp: 1 });
+    
+    const logsByDevice = {};
+    logs.forEach(log => {
+      if (!logsByDevice[log.deviceId]) {
+        logsByDevice[log.deviceId] = [];
+      }
+      logsByDevice[log.deviceId].push(log);
+    });
+
+    const now = new Date();
+    const rankings = [];
+
+    devices.forEach(device => {
+      const devLogs = logsByDevice[device.deviceId] || [];
+      let uptimePercent = 0;
+
+      if (devLogs.length === 0) {
+        uptimePercent = device.status === 'ACTIVE' ? 100 : 0;
+      } else {
+        const firstLogTime = devLogs[0].timestamp;
+        const totalDuration = now.getTime() - firstLogTime.getTime();
+
+        if (totalDuration <= 0) {
+          uptimePercent = device.status === 'ACTIVE' ? 100 : 0;
+        } else {
+          let uptimeMs = 0;
+          let currentPos = firstLogTime;
+          let currentState = devLogs[0].event === 'ONLINE' ? 'OFFLINE' : 'ACTIVE';
+
+          devLogs.forEach(log => {
+            const logTime = log.timestamp;
+            if (currentState === 'ACTIVE') {
+              uptimeMs += logTime.getTime() - currentPos.getTime();
+            }
+            currentPos = logTime;
+            currentState = log.event === 'ONLINE' ? 'ACTIVE' : 'OFFLINE';
+          });
+
+          if (currentState === 'ACTIVE') {
+            uptimeMs += now.getTime() - currentPos.getTime();
+          }
+
+          uptimePercent = Math.round((uptimeMs / totalDuration) * 100);
+        }
+      }
+
+      rankings.push({
+        deviceId: device.deviceId,
+        customerName: device.customerName || 'Unknown Device',
+        status: device.status,
+        uptimePercent
+      });
+    });
+
+    const sortedMost = [...rankings].sort((a, b) => b.uptimePercent - a.uptimePercent);
+    const sortedLeast = [...rankings].sort((a, b) => a.uptimePercent - b.uptimePercent);
+
+    res.json({
+      mostActive: sortedMost.slice(0, 5),
+      leastActive: sortedLeast.slice(0, 5)
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to calculate rankings' });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
