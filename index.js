@@ -316,6 +316,11 @@ app.get('/api/insights/rankings', async (req, res) => {
     const rankings = [];
 
     devices.forEach(device => {
+      const name = device.customerName;
+      if (!name || name.trim() === '' || name.toLowerCase().includes('unknown') || device.deviceId.toLowerCase().includes('default')) {
+        return;
+      }
+
       const devLogs = logsByDevice[device.deviceId] || [];
       let uptimePercent = 0;
 
