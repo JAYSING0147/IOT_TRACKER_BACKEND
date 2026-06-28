@@ -316,11 +316,6 @@ app.get('/api/insights/rankings', async (req, res) => {
     const rankings = [];
 
     devices.forEach(device => {
-      const name = device.customerName;
-      if (!name || name.trim() === '' || name.toLowerCase().includes('unknown') || device.deviceId.toLowerCase().includes('default')) {
-        return;
-      }
-
       const devLogs = logsByDevice[device.deviceId] || [];
       let uptimePercent = 0;
 
@@ -356,19 +351,11 @@ app.get('/api/insights/rankings', async (req, res) => {
 
       rankings.push({
         deviceId: device.deviceId,
-        customerName: device.customerName || 'Unknown Device',
-        status: device.status,
         uptimePercent
       });
     });
 
-    const sortedMost = [...rankings].sort((a, b) => b.uptimePercent - a.uptimePercent);
-    const sortedLeast = [...rankings].sort((a, b) => a.uptimePercent - b.uptimePercent);
-
-    res.json({
-      mostActive: sortedMost.slice(0, 5),
-      leastActive: sortedLeast.slice(0, 5)
-    });
+    res.json(rankings);
   } catch (err) {
     res.status(500).json({ error: 'Failed to calculate rankings' });
   }
