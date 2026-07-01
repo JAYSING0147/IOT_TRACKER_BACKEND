@@ -32,24 +32,23 @@ client.on('connect', () => {
 client.on('message', async (topic, message) => {
   const parts = topic.split('/');
   const deviceId = parts[parts.length - 1];
-  const payload = message.toString();
 
-  if (payload === 'alive') {
-    try {
-      const existing = await Device.findOne({ deviceId });
-      if (!existing || existing.status === 'OFFLINE') {
-        // Device just came online, log it
-        await DeviceLog.create({ deviceId, event: 'ONLINE' });
-      }
+  if (!deviceId) return;
 
-      await Device.findOneAndUpdate(
-        { deviceId },
-        { status: 'ACTIVE', lastSeen: new Date() },
-        { upsert: true, returnDocument: 'after' }
-      );
-    } catch (err) {
-      console.error('Error updating device:', err);
+  try {
+    const existing = await Device.findOne({ deviceId });
+    if (!existing || existing.status === 'OFFLINE') {
+      // Device just came online, log it
+      await DeviceLog.create({ deviceId, event: 'ONLINE' });
     }
+
+    await Device.findOneAndUpdate(
+      { deviceId },
+      { status: 'ACTIVE', lastSeen: new Date() },
+      { upsert: true, returnDocument: 'after' }
+    );
+  } catch (err) {
+    console.error('Error updating device:', err);
   }
 });
 
